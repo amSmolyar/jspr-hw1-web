@@ -18,7 +18,7 @@ public class Server {
     private Request request;
 
     public Server(int portNumber) throws IOException {
-        serverSocket = new ServerSocket(9999);
+        serverSocket = new ServerSocket(portNumber);
         mapHandler = new ConcurrentHashMap<>();
         entryMap = new ConcurrentHashMap<>();
     }
