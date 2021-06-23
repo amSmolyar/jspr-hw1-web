@@ -18,7 +18,7 @@ public class Server {
     private ServerSocket serverSocket;
 
     public Server(int portNumber) throws IOException {
-        serverSocket = new ServerSocket(9999);
+        serverSocket = new ServerSocket(portNumber);
     }
 
     public void runServer(int cntPool) throws IOException {
@@ -79,19 +79,18 @@ public class Server {
                 ).getBytes());
                 out.write(content);
                 out.flush();
-                socket.close();
+            } else {
+                final var length = Files.size(filePath);
+                out.write((
+                        "HTTP/1.1 200 OK\r\n" +
+                                "Content-Type: " + mimeType + "\r\n" +
+                                "Content-Length: " + length + "\r\n" +
+                                "Connection: close\r\n" +
+                                "\r\n"
+                ).getBytes());
+                Files.copy(filePath, out);
+                out.flush();
             }
-
-            final var length = Files.size(filePath);
-            out.write((
-                    "HTTP/1.1 200 OK\r\n" +
-                            "Content-Type: " + mimeType + "\r\n" +
-                            "Content-Length: " + length + "\r\n" +
-                            "Connection: close\r\n" +
-                            "\r\n"
-            ).getBytes());
-            Files.copy(filePath, out);
-            out.flush();
         } catch (IOException e) {
             e.printStackTrace();
         }
