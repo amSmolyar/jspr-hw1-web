@@ -48,6 +48,7 @@ public class Request {
         final var pathWithQueryArray = parts[1].split("\\?");
         final var path = pathWithQueryArray[0];
 
+
         Map<String, List<String>> queryParams = new HashMap<>();
         if (pathWithQueryArray.length == 2) {
             final String allQuery = pathWithQueryArray[1];
