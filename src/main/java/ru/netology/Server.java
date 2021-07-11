@@ -43,7 +43,7 @@ public class Server {
         try (final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
              final var out = new BufferedOutputStream(socket.getOutputStream())) {
 
-            Request request = parseRequest(socket, in);
+            Request request = Request.getRequest(in);
 
             if (mapHandler.containsKey(request.getMethod()) && mapHandler.get(request.getMethod()).containsKey(request.getPath())) {
                 mapHandler.get(request.getMethod()).get(request.getPath()).handle(request, out);
@@ -57,52 +57,6 @@ public class Server {
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-
-    private Request parseRequest(Socket socket, BufferedReader in) throws IOException, NumberFormatException {
-        // =============  requestLine  =============
-        var requestLine = in.readLine();
-        final var parts = requestLine.split(" ");
-
-        if (parts.length != 3) {
-            socket.close();
-        }
-
-        final var method = parts[0];
-        final var path = parts[1];
-
-        // =============  headers  =============
-        StringBuilder inBuffer = new StringBuilder();
-        int bodyLength = -1;
-        while (!in.ready()) {}
-        while (!(requestLine = in.readLine().trim()).equals("")) {
-            inBuffer.append(requestLine + "\n");
-            if (requestLine.startsWith("Content-Length")) {
-                bodyLength = Integer.parseInt(requestLine.substring(requestLine.indexOf(":")).trim());
-            }
-            while (!in.ready()) {}
-        }
-        String headers = inBuffer.toString();
-
-        byte[] bodyByteArray;
-        if (!method.equals("GET") && (bodyLength > 0)) {
-            bodyByteArray = readRequestBody(in, bodyLength);
-            request = new Request(method, path, headers, bodyByteArray.toString());
-        } else
-            request = new Request(method, path, headers);
-
-        return request;
-    }
-
-    private byte[] readRequestBody(BufferedReader in, int bodyLength) throws IOException {
-        // =============  body  =============
-        ByteArrayOutputStream bodyBAOStream = new ByteArrayOutputStream();
-        while (bodyBAOStream.size() < bodyLength) {
-            while (!in.ready()) {}
-            bodyBAOStream.write(in.read());
-        }
-        return bodyBAOStream.toByteArray();
     }
 
     private void notFoundError(BufferedOutputStream out) throws IOException {
