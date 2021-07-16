@@ -1,14 +1,13 @@
 package ru.netology;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 public class Request {
     private String method;
@@ -16,7 +15,11 @@ public class Request {
     private Map<String, List<String>> queryParams;
     private Map<String, String> headers;
     private String body;
-    private Map<String, List<String>> postParams;
+    private Map<String, List<String>> postPartParams;
+    private FileParam file;
+
+
+    private static FileParam fileParam;
 
 
     private Request(String method, String path, Map<String, List<String>> queryParams, Map<String, String> headers) {
@@ -25,16 +28,28 @@ public class Request {
         this.queryParams = queryParams;
         this.headers = headers;
         this.body = "";
-        this.postParams = new HashMap<>();
+        this.postPartParams = new HashMap<>();
+        this.file = new FileParam();
     }
 
-    private Request(String method, String path, Map<String, List<String>> queryParams, Map<String, String> headers, String body, Map<String, List<String>> postParams) {
+    private Request(String method, String path, Map<String, List<String>> queryParams, Map<String, String> headers, String body, Map<String, List<String>> postPartParams) {
         this.method = method;
         this.path = path;
         this.queryParams = queryParams;
         this.headers = headers;
         this.body = body;
-        this.postParams = postParams;
+        this.postPartParams = postPartParams;
+        this.file = new FileParam();
+    }
+
+    private Request(String method, String path, Map<String, List<String>> queryParams, Map<String, String> headers, String body, Map<String, List<String>> postPartParams, FileParam file) {
+        this.method = method;
+        this.path = path;
+        this.queryParams = queryParams;
+        this.headers = headers;
+        this.body = body;
+        this.postPartParams = postPartParams;
+        this.file = file;
     }
 
     public static Request getRequest(BufferedReader in) throws IOException, NumberFormatException {
@@ -80,32 +95,51 @@ public class Request {
             while (!in.ready()) {}
         }
 
-        Map<String, List<String>> postParams = new HashMap<>();
+        Map<String, List<String>> postPartParams = new HashMap<>();
+        String body;
+        if (!method.equals("GET") && (bodyLength > 0) && (headers.containsKey("Content-Type"))) {
+            body = readRequestBody(in, bodyLength);
 
+            if (headers.get("Content-Type").equals("application/x-www-form-urlencoded")) {
+                postPartParams = parsePostParams(body);
+                request = new Request(method, path, queryParams, headers, body, postPartParams);
+            } else if (headers.get("Content-Type").startsWith("multipart/form-data; boundary=")) {
+                String contentType = headers.get("Content-Type");
+                int indDescriptor = contentType.indexOf("=");
+                String boundary = "--" + contentType.substring(indDescriptor + 1);
+                postPartParams = getParts(body, boundary);
 
-        byte[] bodyByteArray;
-        if (!method.equals("GET") && (bodyLength > 0)) {
-            bodyByteArray = readRequestBody(in, bodyLength);
-            String body = new String(bodyByteArray, StandardCharsets.UTF_8);
-            if (headers.containsKey("Content-Type") && headers.get("Content-Type").equals("application/x-www-form-urlencoded")) {
-                postParams = parsePostParams(body);
-                request = new Request(method, path, queryParams, headers, body, postParams);
+                request = new Request(method, path, queryParams, headers, body, postPartParams, fileParam);
             } else
-                request = new Request(method, path, queryParams, headers, body, postParams);
+                request = new Request(method, path, queryParams, headers);
         } else
             request = new Request(method, path, queryParams, headers);
 
         return request;
     }
 
-    private static byte[] readRequestBody(BufferedReader in, int bodyLength) throws IOException {
+    private static String readRequestBody(BufferedReader in, int bodyLength) throws IOException {
         // =============  body  =============
         ByteArrayOutputStream bodyBAOStream = new ByteArrayOutputStream();
-        while (bodyBAOStream.size() < bodyLength) {
-            while (!in.ready()) {}
+        StringBuilder stringBuilder = new StringBuilder();
+        int size = 0;
+        int cntWait = 0;
+        while ((bodyBAOStream.size() < bodyLength)) {
+            if (!in.ready()) {
+                cntWait++;
+                if (cntWait == 10)
+                    break;
+            }
+
             bodyBAOStream.write(in.read());
         }
-        return bodyBAOStream.toByteArray();
+        size += bodyBAOStream.size();
+        byte[] byteArray = bodyBAOStream.toByteArray();
+
+        stringBuilder.append(new String(byteArray, StandardCharsets.UTF_8));
+        bodyBAOStream.reset();
+
+        return stringBuilder.toString();
     }
 
     public List<String> getQueryParam(String name) {
@@ -146,8 +180,8 @@ public class Request {
 
     public List<String> getPostParam(String name) {
         List<String> value = new ArrayList<>();
-        if (postParams.containsKey(name))
-            value = postParams.get(name);
+        if (postPartParams.containsKey(name))
+            value = postPartParams.get(name);
 
         return value;
     }
@@ -177,6 +211,58 @@ public class Request {
             }
         }
         return postParams;
+    }
+
+    public List<String> getPart(String name) {
+        List<String> value = new ArrayList<>();
+        if (postPartParams.containsKey(name))
+            value = postPartParams.get(name);
+
+        return value;
+    }
+
+    private static Map<String, List<String>> getParts(String body, String boundary) {
+        Map<String, List<String>> partParams = new HashMap<>();
+        String param;
+        String partName;
+        String partValue;
+        int indNameDelimiter;
+        int indValDelimiter;
+
+        var postParamsArray = body.split(boundary);
+        for (int ii = 0; ii < (postParamsArray.length - 1); ii++) {
+            param = postParamsArray[ii].trim();
+            if (param.equals(""))
+                continue;
+
+            indNameDelimiter = param.indexOf("=");
+            indValDelimiter = param.indexOf("\r\n\r\n");
+            partName = param.substring(indNameDelimiter + 1, indValDelimiter);
+            partValue = param.substring(indValDelimiter + 4);
+
+            if (partName.contains("Content-Type:")) {
+                fileParam = new FileParam();
+                fileParam.setFileData(partValue);
+                var filePartArray = partName.split("\r\n");
+                indNameDelimiter = filePartArray[0].indexOf(";");
+                partName = filePartArray[0].substring(1, indNameDelimiter - 1);
+                partValue = filePartArray[0].substring(indNameDelimiter + 2);
+                fileParam.setFileName(partValue.substring(10, partValue.length() - 1));
+                fileParam.setFileType(filePartArray[1].substring(filePartArray[1].indexOf("/") + 1));
+            } else
+                partName = partName.substring(1, partName.length() - 1);
+
+            if (partParams.containsKey(partName)) {
+                var values = partParams.get(partName);
+                values.add(partValue);
+                partParams.put(partName, values);
+            } else {
+                List<String> values = new ArrayList<>();
+                values.add(partValue);
+                partParams.put(partName, values);
+            }
+        }
+        return partParams;
     }
 
 
@@ -214,5 +300,9 @@ public class Request {
 
     public Map<String, List<String>> getQueryParams() {
         return queryParams;
+    }
+
+    public FileParam getFile() {
+        return file;
     }
 }

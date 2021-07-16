@@ -67,6 +67,12 @@ public class Server {
             } else {
                 okResponse(out);
             }
+
+            FileParam file = request.getFile();
+            if (!(file.getFileName().equals("") || file.getFileType().equals("") || file.getFileData().equals(""))) {
+                FileLoader fileLoader = new FileLoader(file);
+            }
+
         } catch (IOException e) {
             e.printStackTrace();
         }
