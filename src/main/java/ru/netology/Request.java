@@ -1,111 +1,124 @@
 package ru.netology;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class Request {
     private String method;
     private String path;
     private Map<String, List<String>> queryParams;
     private Map<String, String> headers;
-    private String body;
-    private Map<String, List<String>> postParams;
+    private int bodyLength;
+    private byte[] body;
+    private Map<String, List<String>> postPartParams;
 
-
-    private Request(String method, String path, Map<String, List<String>> queryParams, Map<String, String> headers) {
-        this.method = method;
-        this.path = path;
-        this.queryParams = queryParams;
-        this.headers = headers;
-        this.body = "";
-        this.postParams = new HashMap<>();
+    private Request() {
+        this.queryParams = new HashMap<>();
+        this.headers = new HashMap<>();
+        this.postPartParams = new HashMap<>();
     }
 
-    private Request(String method, String path, Map<String, List<String>> queryParams, Map<String, String> headers, String body, Map<String, List<String>> postParams) {
-        this.method = method;
-        this.path = path;
-        this.queryParams = queryParams;
-        this.headers = headers;
-        this.body = body;
-        this.postParams = postParams;
-    }
+    public static Request getRequest(BufferedInputStream in) throws IOException, NumberFormatException {
+        Request request = new Request();
+        // лимит на request line + заголовки
+        final var limit = 4096;
 
-    public static Request getRequest(BufferedReader in) throws IOException, NumberFormatException {
-        Request request;
-        // =============  requestLine  =============
-        var requestLine = in.readLine();
-        final var parts = requestLine.split(" ");
+        in.mark(limit);
+        final var buffer = new byte[limit];
+        final var read = in.read(buffer);
 
-        if (parts.length != 3) {
+        // ищем request line
+        final var requestLineDelimiter = new byte[]{'\r', '\n'};
+        final var requestLineEnd = indexOf(buffer, requestLineDelimiter, 0, read);
+
+        if (requestLineEnd == -1)
             throw new IOException();
-        }
 
-        final var method = parts[0];
+        // читаем request line
+        final var requestLine = new String(Arrays.copyOf(buffer, requestLineEnd));
+        request = request.readRequestLineAndQuery(request, requestLine);
 
-        final var pathWithQueryArray = parts[1].split("\\?");
-        final var path = pathWithQueryArray[0];
+        // ищем заголовки
+        final var headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
+        final var headersStart = requestLineEnd + requestLineDelimiter.length;
+        final var headersEnd = indexOf(buffer, headersDelimiter, headersStart, read);
+        if (headersEnd == -1)
+            throw new IOException();
 
+        // отматываем на начало буфера
+        in.reset();
+        // пропускаем requestLine
+        in.skip(headersStart);
 
-        Map<String, List<String>> queryParams = new HashMap<>();
-        if (pathWithQueryArray.length == 2) {
-            final String allQuery = pathWithQueryArray[1];
-            queryParams = parseQueryParams(allQuery);
-        }
+        final var headersBytes = in.readNBytes(headersEnd - headersStart);
+        final var headersString = new String(headersBytes);
+        request = request.readHeaders(request, headersString);
 
-        // =============  headers  =============
-        Map<String, String> headers = new HashMap<>();
-        String headerName;
-        String headerValue;
+        request.bodyLength = -1;
+        if (!request.method.equals("GET")) {
+            in.skip(headersDelimiter.length);
+            // вычитываем Content-Length, чтобы прочитать body
+            if (request.headers.containsKey("Content-Length")) {
+                request.bodyLength = Integer.parseInt(request.headers.get("Content-Length"));
+                request.body = in.readNBytes(request.bodyLength);
 
-        int bodyLength = -1;
-        while (!in.ready()) {}
-        while (!(requestLine = in.readLine().trim()).equals("")) {
-            int indDelimiter = requestLine.indexOf(":");
-            headerName = requestLine.substring(0, indDelimiter).trim();
-            headerValue = requestLine.substring(indDelimiter + 1).trim();
-
-            if (headerName.equals("Content-Length")) {
-                bodyLength = Integer.parseInt(headerValue);
+                if (request.headers.get("Content-Type").equals("application/x-www-form-urlencoded")) {
+                    request.postPartParams = request.parsePostParams(request.body);
+                }
             }
-
-            headers.put(headerName, headerValue);
-
-            while (!in.ready()) {}
         }
-
-        Map<String, List<String>> postParams = new HashMap<>();
-
-
-        byte[] bodyByteArray;
-        if (!method.equals("GET") && (bodyLength > 0)) {
-            bodyByteArray = readRequestBody(in, bodyLength);
-            String body = new String(bodyByteArray, StandardCharsets.UTF_8);
-            if (headers.containsKey("Content-Type") && headers.get("Content-Type").equals("application/x-www-form-urlencoded")) {
-                postParams = parsePostParams(body);
-                request = new Request(method, path, queryParams, headers, body, postParams);
-            } else
-                request = new Request(method, path, queryParams, headers, body, postParams);
-        } else
-            request = new Request(method, path, queryParams, headers);
 
         return request;
     }
 
-    private static byte[] readRequestBody(BufferedReader in, int bodyLength) throws IOException {
-        // =============  body  =============
-        ByteArrayOutputStream bodyBAOStream = new ByteArrayOutputStream();
-        while (bodyBAOStream.size() < bodyLength) {
-            while (!in.ready()) {}
-            bodyBAOStream.write(in.read());
+
+    private Request readRequestLineAndQuery(Request request, String requestLine) throws IOException {
+        final var allowedMethods = List.of("GET", "POST");
+
+        final var requestLineParts = requestLine.split(" ");
+        if (requestLineParts.length != 3)
+            throw new IOException();
+
+        request.method = requestLineParts[0];
+        if (!allowedMethods.contains(method))
+            throw new IOException();
+
+        final var pathWithQueryArray = requestLineParts[1].split("\\?");
+        request.path = pathWithQueryArray[0];
+        if (!request.path.startsWith("/"))
+            throw new IOException();
+
+
+        if (pathWithQueryArray.length == 2) {
+            final String allQuery = pathWithQueryArray[1];
+            request.queryParams = parseQueryParams(allQuery);
         }
-        return bodyBAOStream.toByteArray();
+
+        return request;
+    }
+
+    private Request readHeaders(Request request, String headersStr) {
+        String line;
+        String headerName;
+        String headerValue;
+        int indDelimiter;
+
+        final var headersParts = headersStr.split("\r\n");
+
+        for (int ii = 0; ii < headersParts.length; ii++) {
+            line = headersParts[ii];
+            if (line.equals(""))
+                continue;
+
+            indDelimiter = line.indexOf(":");
+            headerName = line.substring(0, indDelimiter).trim();
+            headerValue = line.substring(indDelimiter + 1).trim();
+
+            request.headers.put(headerName, headerValue);
+        }
+
+        return request;
     }
 
     public List<String> getQueryParam(String name) {
@@ -116,67 +129,60 @@ public class Request {
         return value;
     }
 
-    private static Map<String, List<String>> parseQueryParams(String request) {
-        Map<String, List<String>> queryParams = new HashMap<>();
-        String query;
-        String queryName;
-        String queryValue;
-        int indDelimiter;
-
-
-        var queryArray = request.split("\\&");
-        for (int ii = 0; ii < queryArray.length; ii++) {
-            query = queryArray[ii];
-            indDelimiter = query.indexOf("=");
-            queryName = query.substring(0, indDelimiter);
-            queryValue = query.substring(indDelimiter + 1);
-
-            if (queryParams.containsKey(queryName)) {
-                var values = queryParams.get(queryName);
-                values.add(queryValue);
-                queryParams.put(queryName, values);
-            } else {
-                List<String> values = new ArrayList<>();
-                values.add(queryValue);
-                queryParams.put(queryName, values);
-            }
-        }
-        return queryParams;
+    private Map<String, List<String>> parseQueryParams(String request) {
+        return getParamsFromString(request, "\\&");
     }
 
     public List<String> getPostParam(String name) {
         List<String> value = new ArrayList<>();
-        if (postParams.containsKey(name))
-            value = postParams.get(name);
+        if (postPartParams.containsKey(name))
+            value = postPartParams.get(name);
 
         return value;
     }
 
-    private static Map<String, List<String>> parsePostParams(String body) {
-        Map<String, List<String>> postParams = new HashMap<>();
+    private Map<String, List<String>> parsePostParams(byte[] bodyBytes) {
+        String body = new String(bodyBytes, StandardCharsets.UTF_8);
+        return getParamsFromString(body, "\\&");
+    }
+
+    private Map<String, List<String>> getParamsFromString(String str, String boundary) {
         String param;
-        String postName;
-        String postValue;
+        String paramName;
+        String paramValue;
         int indDelimiter;
 
-        var postParamsArray = body.split("\\&");
-        for (int ii = 0; ii < postParamsArray.length; ii++) {
-            param = postParamsArray[ii];
-            indDelimiter = param.indexOf("=");
-            postName = param.substring(0, indDelimiter);
-            postValue = param.substring(indDelimiter + 1);
+        Map<String, List<String>> paramMap = new HashMap<>();
 
-            if (postParams.containsKey(postName)) {
-                var values = postParams.get(postName);
-                values.add(postValue);
-                postParams.put(postName, values);
-            } else {
-                List<String> values = new ArrayList<>();
-                values.add(postValue);
-                postParams.put(postName, values);
-            }
+        var paramsArray = str.split(boundary);
+        for (int ii = 0; ii < paramsArray.length; ii++) {
+            param = paramsArray[ii];
+            indDelimiter = param.indexOf("=");
+            paramName = param.substring(0, indDelimiter);
+            paramValue = param.substring(indDelimiter + 1);
+
+            List<String> values = new ArrayList<>();
+            if (paramMap.containsKey(paramName))
+                values = paramMap.get(paramName);
+
+            values.add(paramValue);
+            paramMap.put(paramName, values);
         }
-        return postParams;
+        return paramMap;
+    }
+
+    // from google guava with modifications
+    private static int indexOf(byte[] array, byte[] target, int start, int max) {
+        outer:
+        for (int i = start; i < max - target.length + 1; i++) {
+            for (int j = 0; j < target.length; j++) {
+                if (array[i + j] != target[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
     }
 
 
@@ -204,15 +210,16 @@ public class Request {
         this.headers = headers;
     }
 
-    public String getBody() {
+    public byte[] getBody() {
         return body;
     }
 
-    public void setBody(String body) {
+    public void setBody(byte[] body) {
         this.body = body;
     }
 
     public Map<String, List<String>> getQueryParams() {
         return queryParams;
     }
+
 }

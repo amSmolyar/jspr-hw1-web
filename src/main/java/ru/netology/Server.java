@@ -44,7 +44,7 @@ public class Server {
     }
 
     private void requestServer(Socket socket) {
-        try (final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        try (final var in = new BufferedInputStream(socket.getInputStream());
              final var out = new BufferedOutputStream(socket.getOutputStream())) {
 
             Request request = Request.getRequest(in);
