@@ -3,12 +3,14 @@ package ru.netology;
 public class FileParam {
     private String fileType;
     private String fileName;
-    private String fileData;
+    private byte[] fileData;
+    private int fileDataLength;
 
     public FileParam() {
         fileType = "";
         fileName = "";
-        fileData = "";
+        fileData = new byte[]{};
+        fileDataLength = 0;
     }
 
     public String getFileType() {
@@ -27,11 +29,19 @@ public class FileParam {
         this.fileName = fileName;
     }
 
-    public String getFileData() {
+    public byte[] getFileData() {
         return fileData;
     }
 
-    public void setFileData(String fileData) {
+    public void setFileData(byte[] fileData) {
         this.fileData = fileData;
+    }
+
+    public int getFileDataLength() {
+        return fileDataLength;
+    }
+
+    public void setFileDataLength(int fileDataLength) {
+        this.fileDataLength = fileDataLength;
     }
 }

@@ -1,15 +1,12 @@
 package ru.netology;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 
 public class FileLoader {
     private static final String PATH_TO_FILE = "D:/JAVA/jspr-hw1-web";
 
     private FileParam file;
-    private BufferedWriter bufferedWriter;
+    private BufferedOutputStream bufferedOutputStream;
 
     public FileLoader(FileParam file) {
         this.file = file;
@@ -30,16 +27,15 @@ public class FileLoader {
 
         File newFile = new File(PATH_TO_FILE + "//" + fileName);
         try {
-            if (newFile.createNewFile()) {
+            if (newFile.createNewFile())
                 System.out.println("   В каталоге " + PATH_TO_FILE + " создан файл '" + fileName + "'.");
-                bufferedWriter = new BufferedWriter(new FileWriter(newFile, false));
-            } else if (newFile.exists()) {
+            else if (newFile.exists())
                 System.out.println("   В каталоге " + PATH_TO_FILE + " открыт файл '" + fileName + "' .");
-                bufferedWriter = new BufferedWriter(new FileWriter(newFile, false));
-            }
 
-            bufferedWriter.write(file.getFileData());
-            bufferedWriter.flush();
+            bufferedOutputStream = new BufferedOutputStream(new FileOutputStream(newFile, false));
+
+            bufferedOutputStream.write(file.getFileData());
+            bufferedOutputStream.flush();
         } catch (IOException e) {
             System.out.println(e.getMessage());
             System.out.println("Ошибка при создании файла " + fileName);
@@ -48,7 +44,7 @@ public class FileLoader {
 
     public void close() {
         try {
-            bufferedWriter.close();
+            bufferedOutputStream.close();
         } catch (IOException e) {
             System.out.println(e.getMessage());
         }
