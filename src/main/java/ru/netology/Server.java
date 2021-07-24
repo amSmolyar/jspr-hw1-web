@@ -10,8 +10,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static javax.swing.text.html.FormSubmitEvent.MethodType.POST;
+
 public class Server {
     private final List<String> validPaths = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
+    private final List<String> allowedMethods = List.of("GET", "POST");
+
     private final ServerSocket serverSocket;
     private ConcurrentHashMap<String, ConcurrentHashMap<String, Handler>> mapHandler;
     private ConcurrentHashMap<String, Handler> entryMap;
@@ -40,69 +44,32 @@ public class Server {
     }
 
     private void requestServer(Socket socket) {
-        try (final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        try (final var in = new BufferedInputStream(socket.getInputStream());
              final var out = new BufferedOutputStream(socket.getOutputStream())) {
 
-            Request request = parseRequest(socket, in);
+            Request request = Request.getRequest(in);
+
+            if (!allowedMethods.contains(request.getMethod())) {
+                badRequest(out);
+                return;
+            }
+
+            if (!request.getPath().startsWith("/")) {
+                badRequest(out);
+                return;
+            }
 
             if (mapHandler.containsKey(request.getMethod()) && mapHandler.get(request.getMethod()).containsKey(request.getPath())) {
                 mapHandler.get(request.getMethod()).get(request.getPath()).handle(request, out);
                 socket.close();
-            } else if (!validPaths.contains(request.getPath())) {
-                notFoundError(out);
-                socket.close();
-            } else {
+            } else if (validPaths.contains(request.getPath())) {
                 defaultResponse(request, out);
+            } else {
+                okResponse(out);
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-
-    private Request parseRequest(Socket socket, BufferedReader in) throws IOException, NumberFormatException {
-        // =============  requestLine  =============
-        var requestLine = in.readLine();
-        final var parts = requestLine.split(" ");
-
-        if (parts.length != 3) {
-            socket.close();
-        }
-
-        final var method = parts[0];
-        final var path = parts[1];
-
-        // =============  headers  =============
-        StringBuilder inBuffer = new StringBuilder();
-        int bodyLength = -1;
-        while (!in.ready()) {}
-        while (!(requestLine = in.readLine().trim()).equals("")) {
-            inBuffer.append(requestLine + "\n");
-            if (requestLine.startsWith("Content-Length")) {
-                bodyLength = Integer.parseInt(requestLine.substring(requestLine.indexOf(":")).trim());
-            }
-            while (!in.ready()) {}
-        }
-        String headers = inBuffer.toString();
-
-        byte[] bodyByteArray;
-        if (!method.equals("GET") && (bodyLength > 0)) {
-            bodyByteArray = readRequestBody(in, bodyLength);
-            request = new Request(method, path, headers, bodyByteArray.toString());
-        } else
-            request = new Request(method, path, headers);
-
-        return request;
-    }
-
-    private byte[] readRequestBody(BufferedReader in, int bodyLength) throws IOException {
-        // =============  body  =============
-        ByteArrayOutputStream bodyBAOStream = new ByteArrayOutputStream();
-        while (bodyBAOStream.size() < bodyLength) {
-            while (!in.ready()) {}
-            bodyBAOStream.write(in.read());
-        }
-        return bodyBAOStream.toByteArray();
     }
 
     private void notFoundError(BufferedOutputStream out) throws IOException {
@@ -133,5 +100,25 @@ public class Server {
         ).getBytes());
         Files.copy(filePath, responseStream);
         responseStream.flush();
+    }
+
+    public void okResponse(BufferedOutputStream out) throws IOException {
+        out.write((
+                "HTTP/1.1 200 OK\r\n" +
+                        "Content-Length: 0\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n"
+        ).getBytes());
+        out.flush();
+    }
+
+    private static void badRequest(BufferedOutputStream out) throws IOException {
+        out.write((
+                "HTTP/1.1 400 Bad Request\r\n" +
+                        "Content-Length: 0\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n"
+        ).getBytes());
+        out.flush();
     }
 }
